@@ -259,15 +259,14 @@ let expandedMeals={0:true,1:false,2:false,3:false};
 
 function todayStr(){const d=new Date();return d.toISOString().split('T')[0];}
 function st(k,v){
-  if(window._useCloud&&window._stCloud){window._stCloud(k,v);return true;}
-  try{localStorage.setItem(k,JSON.stringify(v));return true;}catch{return false;}
+  // Always save to localStorage first (instant, synchronous)
+  try{localStorage.setItem(k,JSON.stringify(v));}catch{}
+  // Then sync to cloud in background if logged in
+  if(window._useCloud&&window._stCloud){window._stCloud(k,v);}
+  return true;
 }
 function ld(k,def=null){
   try{const r=localStorage.getItem(k);return r?JSON.parse(r):def;}catch{return def;}
-}
-async function ldAsync(k,def=null){
-  if(window._useCloud&&window._ldCloud) return await window._ldCloud(k,def);
-  return ld(k,def);
 }
 window._showToast=function(msg){const t=document.getElementById('toast');if(t){t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
@@ -1060,14 +1059,25 @@ async function ldCloud(key, def = null) {
 
 // Migrate localStorage to Firestore on first login
 async function migrateLocalToCloud() {
-  const keys = Object.keys(localStorage).filter(k => k.startsWith('nt_'));
-  for (const key of keys) {
+  // First push local data to cloud
+  const localKeys = Object.keys(localStorage).filter(k => k.startsWith('nt_'));
+  for (const key of localKeys) {
     try {
       const val = localStorage.getItem(key);
       if (val) await setDoc(doc(db, 'users', currentUser.uid, 'data', key), { value: val });
     } catch(e) {}
   }
-  if (keys.length > 0) window._showToast('Données locales synchronisées !');
+  // Then pull cloud data to localStorage (cloud wins for cross-device sync)
+  try {
+    const colRef = collection(db, 'users', currentUser.uid, 'data');
+    const snap = await getDocs(colRef);
+    snap.forEach(d => {
+      try { localStorage.setItem(d.id, d.data().value); } catch(e) {}
+    });
+    if (snap.size > 0) window._showToast('Données synchronisées !');
+  } catch(e) {
+    if (localKeys.length > 0) window._showToast('Données locales sauvegardées !');
+  }
 }
 
 // Auth UI
