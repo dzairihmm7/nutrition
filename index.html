@@ -312,7 +312,7 @@ function getStreak(){
   return streak;
 }
 
-function switchView(v){
+window.switchView = function switchView(v){
   curView=v;
   document.querySelectorAll('.view-tab').forEach((b,i)=>{
     b.classList.toggle('active',['today','calendar','foods','goals'][i]===v);
@@ -328,7 +328,7 @@ function switchView(v){
 
 function pct(val,target){return Math.min(100,Math.round((val/target)*100));}
 
-function renderToday(){
+window.renderToday = function renderToday(){
   const goals=getGoals();
   const totals=getDayTotals(curDate);
   const data=getDayData(curDate);
@@ -903,7 +903,7 @@ function deleteFoodDB(id){
 }
 
 /* GOALS */
-function renderGoals(){
+window.renderGoals = function renderGoals(){
   const g=getGoals();
   let html=`
   <div class="goals-card">
