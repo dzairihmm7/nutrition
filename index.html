@@ -647,7 +647,6 @@ function confirmAdd(){
       sugar:Math.round((sf.sugar||0)*ratio*10)/10,
     };
     data.meals[modalState.mealIdx].push(item);
-    // Track usage frequency
     const freq=ld('nt_freq',{});
     freq[sf.id]=(freq[sf.id]||0)+1;
     st('nt_freq',freq);
@@ -666,18 +665,22 @@ function confirmAdd(){
       st('nt_foods',foods);
     }
   }
-  saveDayData(curDate,data);
+  // Save to localStorage immediately and synchronously
+  try{ localStorage.setItem(`nt_day_${curDate}`, JSON.stringify(data)); }catch{}
+  // Sync to cloud in background
+  if(window._useCloud&&window._stCloud) window._stCloud(`nt_day_${curDate}`, data);
   expandedMeals[modalState.mealIdx]=true;
   closeModal();
   toast("Aliment ajouté !");
-  renderToday();
+  window.renderToday();
 }
 
 function deleteFood(mi,ii){
   const data=getDayData(curDate);
   data.meals[mi].splice(ii,1);
-  saveDayData(curDate,data);
-  renderToday();
+  try{ localStorage.setItem(`nt_day_${curDate}`, JSON.stringify(data)); }catch{}
+  if(window._useCloud&&window._stCloud) window._stCloud(`nt_day_${curDate}`, data);
+  window.renderToday();
 }
 
 /* CALENDAR */
