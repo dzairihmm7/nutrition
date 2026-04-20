@@ -258,8 +258,18 @@ let modalState={open:false,mealIdx:0,tab:'list',selectedFood:null,qty:1,customFo
 let expandedMeals={0:true,1:false,2:false,3:false};
 
 function todayStr(){const d=new Date();return d.toISOString().split('T')[0];}
-function st(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true;}catch{return false;}}
-function ld(k,def=null){try{const r=localStorage.getItem(k);return r?JSON.parse(r):def;}catch{return def;}}
+function st(k,v){
+  if(window._useCloud&&window._stCloud){window._stCloud(k,v);return true;}
+  try{localStorage.setItem(k,JSON.stringify(v));return true;}catch{return false;}
+}
+function ld(k,def=null){
+  try{const r=localStorage.getItem(k);return r?JSON.parse(r):def;}catch{return def;}
+}
+async function ldAsync(k,def=null){
+  if(window._useCloud&&window._ldCloud) return await window._ldCloud(k,def);
+  return ld(k,def);
+}
+window._showToast=function(msg){const t=document.getElementById('toast');if(t){t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
 
 function getGoals(){return ld('nt_goals',DEFAULT_GOALS);}
@@ -1002,5 +1012,114 @@ function saveGoals(){
 renderToday();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAdBMDonYbM04iNYgxI8Glxond8qR5Spj4",
+  authDomain: "tracker-samy.firebaseapp.com",
+  projectId: "tracker-samy",
+  storageBucket: "tracker-samy.firebasestorage.app",
+  messagingSenderId: "43109754437",
+  appId: "1:43109754437:web:6207cf1a180da38605e52c"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const provider = new GoogleAuthProvider();
+
+let currentUser = null;
+
+// Override st/ld to use Firestore when logged in
+async function stCloud(key, value) {
+  if (!currentUser) { localStorage.setItem(key, JSON.stringify(value)); return; }
+  try {
+    await setDoc(doc(db, 'users', currentUser.uid, 'data', key), { value: JSON.stringify(value) });
+  } catch(e) { localStorage.setItem(key, JSON.stringify(value)); }
+}
+
+async function ldCloud(key, def = null) {
+  if (!currentUser) {
+    const r = localStorage.getItem(key);
+    return r ? JSON.parse(r) : def;
+  }
+  try {
+    const snap = await getDoc(doc(db, 'users', currentUser.uid, 'data', key));
+    if (snap.exists()) return JSON.parse(snap.data().value);
+    // Fallback to localStorage
+    const r = localStorage.getItem(key);
+    return r ? JSON.parse(r) : def;
+  } catch(e) {
+    const r = localStorage.getItem(key);
+    return r ? JSON.parse(r) : def;
+  }
+}
+
+// Migrate localStorage to Firestore on first login
+async function migrateLocalToCloud() {
+  const keys = Object.keys(localStorage).filter(k => k.startsWith('nt_'));
+  for (const key of keys) {
+    try {
+      const val = localStorage.getItem(key);
+      if (val) await setDoc(doc(db, 'users', currentUser.uid, 'data', key), { value: val });
+    } catch(e) {}
+  }
+  if (keys.length > 0) window._showToast('Données locales synchronisées !');
+}
+
+// Auth UI
+function renderAuthBar(user) {
+  let bar = document.getElementById('auth-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'auth-bar';
+    bar.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:1rem;padding:10px 14px;background:#fff;border-radius:14px;box-shadow:0 2px 8px rgba(0,0,0,0.06)';
+    document.querySelector('.app').prepend(bar);
+  }
+  if (user) {
+    bar.innerHTML = `
+      <img src="${user.photoURL}" style="width:28px;height:28px;border-radius:50%;object-fit:cover" onerror="this.style.display='none'">
+      <span style="font-size:13px;font-weight:600;color:#1a2a1a">${user.displayName?.split(' ')[0] || 'Connecté'}</span>
+      <span style="font-size:11px;color:#1D9E75;background:#e0f5ec;padding:2px 8px;border-radius:20px;font-weight:600">Sync activée</span>
+      <button type="button" onclick="window._signOut()" style="padding:6px 14px;border:2px solid #fce8e8;border-radius:10px;background:#fff;color:#E24B4A;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit">Déconnexion</button>`;
+  } else {
+    bar.innerHTML = `
+      <span style="font-size:13px;color:#8a9e8a">Données locales uniquement</span>
+      <button type="button" onclick="window._signIn()" style="padding:8px 18px;border:none;border-radius:10px;background:#1D9E75;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 12px rgba(29,158,117,0.3)">Se connecter avec Google</button>`;
+  }
+}
+
+window._signIn = async () => {
+  try {
+    await signInWithPopup(auth, provider);
+  } catch(e) { console.error(e); }
+};
+
+window._signOut = async () => {
+  await signOut(auth);
+  window._showToast('Déconnecté');
+};
+
+// Override global st/ld
+window._stCloud = stCloud;
+window._ldCloud = ldCloud;
+
+onAuthStateChanged(auth, async (user) => {
+  currentUser = user;
+  renderAuthBar(user);
+  if (user) {
+    await migrateLocalToCloud();
+    // Patch st and ld to use cloud
+    window._useCloud = true;
+  } else {
+    window._useCloud = false;
+  }
+  // Re-render current view
+  if (typeof renderToday === 'function') renderToday();
+});
+</script>
 </body>
 </html>
